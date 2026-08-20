@@ -49,7 +49,7 @@ function SyncIndicator({ connected }) {
   );
 }
 
-function Header({ connected, roomCode, setRoomCode, onJoinRoom }) {
+function Header({ connected, roomCode, setRoomCode, username, setUsername, onJoinRoom }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -79,8 +79,24 @@ function Header({ connected, roomCode, setRoomCode, onJoinRoom }) {
           <SyncIndicator connected={connected} />
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex flex-1 items-center gap-2 rounded-lg border border-[#1E1E20] bg-[#141416] px-3 py-2 sm:w-72">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Campo Nome Utente */}
+          <div className="flex items-center gap-1.5 rounded-lg border border-[#1E1E20] bg-[#141416] px-3 py-2">
+            <span className="font-[Barlow_Condensed,sans-serif] text-[11px] uppercase tracking-[0.14em] text-[#6B6963] shrink-0">
+              Nome
+            </span>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Il tuo nome"
+              maxLength={12}
+              className="w-24 bg-transparent font-sans text-sm text-[#F5F3EF] placeholder-[#4A4944] outline-none"
+            />
+          </div>
+
+          {/* Campo Codice Stanza */}
+          <div className="flex items-center gap-1.5 rounded-lg border border-[#1E1E20] bg-[#141416] px-3 py-2">
             <span className="font-[Barlow_Condensed,sans-serif] text-[11px] uppercase tracking-[0.14em] text-[#6B6963] shrink-0">
               Stanza
             </span>
@@ -90,14 +106,15 @@ function Header({ connected, roomCode, setRoomCode, onJoinRoom }) {
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
               placeholder="XKZ-491"
               maxLength={8}
-              className="w-full bg-transparent font-mono text-sm tracking-widest text-[#F5F3EF] placeholder-[#4A4944] outline-none"
+              className="w-20 bg-transparent font-mono text-sm tracking-widest text-[#F5F3EF] placeholder-[#4A4944] outline-none"
             />
           </div>
+
           <button
             onClick={onJoinRoom}
             className="shrink-0 rounded-lg bg-[#FF4D2E] px-3 py-2 text-sm font-semibold text-[#0A0A0B] transition-opacity hover:opacity-90 active:scale-95"
           >
-            Entra
+            {connected ? "Riconnetti" : "Entra"}
           </button>
           <button
             onClick={handleCopy}
@@ -323,16 +340,39 @@ function ChatPanel({ messages, onSendMessage }) {
           Chat Stanza
         </span>
       </div>
-      <div ref={listRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 max-h-[280px]">
-        {messages.map((m, idx) => (
-          <div key={idx} className={`flex flex-col ${m.self ? "items-end" : "items-start"}`}>
-            <div className={`rounded-lg px-3 py-1.5 text-sm ${m.self ? "bg-[#FF4D2E] text-black" : "bg-[#1E1E20] text-white"}`}>
-              {m.text}
+
+      <div ref={listRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-2.5 max-h-[280px]">
+        {messages.map((m, idx) => {
+          if (m.system) {
+            return (
+              <div key={idx} className="my-1 text-center font-mono text-[11px] text-[#FF9F2E]">
+                -- {m.text} --
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={idx}
+              className={`flex flex-col ${m.self ? "items-end" : "items-start"}`}
+            >
+              <div
+                className={`rounded-xl px-3 py-1.5 text-sm max-w-[85%] break-words ${
+                  m.self
+                    ? "bg-[#FF4D2E] text-[#0A0A0B] font-medium rounded-br-none"
+                    : "bg-[#1E1E20] text-[#F5F3EF] rounded-bl-none border border-[#2A2A2C]"
+                }`}
+              >
+                {m.text}
+              </div>
+              <span className="text-[10px] text-[#6B6963] mt-1 px-1 font-mono">
+                {m.self ? "Tu" : m.authorName}
+              </span>
             </div>
-            <span className="text-[9px] text-[#6B6963] mt-0.5">{m.authorName}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
       <div className="border-t border-[#1E1E20] p-2 flex gap-2">
         <input
           type="text"
@@ -340,9 +380,12 @@ function ChatPanel({ messages, onSendMessage }) {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Scrivi un messaggio..."
-          className="flex-1 bg-[#0A0A0B] border border-[#1E1E20] rounded px-3 text-sm text-white outline-none focus:border-[#FF4D2E]/50"
+          className="flex-1 bg-[#0A0A0B] border border-[#1E1E20] rounded-lg px-3 py-2 text-sm text-[#F5F3EF] outline-none focus:border-[#FF4D2E]/50"
         />
-        <button onClick={handleSend} className="bg-[#FF4D2E] text-black px-3 py-1 rounded font-bold text-sm hover:opacity-90">
+        <button
+          onClick={handleSend}
+          className="bg-[#FF4D2E] text-[#0A0A0B] px-4 py-2 rounded-lg font-bold text-sm hover:opacity-90 active:scale-95 transition-transform"
+        >
           Invia
         </button>
       </div>
@@ -354,7 +397,7 @@ export default function WatchParty() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [roomCode, setRoomCode] = useState("TEST12");
-  const [mySocketId, setMySocketId] = useState(null);
+  const [username, setUsername] = useState("Utente");
 
   const [provider, setProvider] = useState("vixsrc");
   const [mediaType, setMediaType] = useState("movie");
@@ -371,44 +414,58 @@ export default function WatchParty() {
 
     newSocket.on("connect", () => {
       setConnected(true);
-      setMySocketId(newSocket.id);
     });
 
     newSocket.on("disconnect", () => {
       setConnected(false);
-      setMySocketId(null);
     });
 
-    // Gestione sicura dei messaggi della chat
     newSocket.on("receive_message", (msg) => {
       const authorText = typeof msg.author === "string" 
         ? msg.author 
-        : (msg.author?.username || "Utente");
+        : (msg.author?.username || "Ospite");
 
-      const isSelf = msg.authorSocketId ? msg.authorSocketId === newSocket.id : false;
+      const isSelf = msg.socketId ? msg.socketId === newSocket.id : false;
 
       setMessages((prev) => [
         ...prev,
         {
           text: msg.text || "",
           authorName: authorText,
-          self: isSelf
+          self: isSelf,
+          system: false,
         }
       ]);
     });
 
-    // Gestione cambio film/serie
     newSocket.on("media_changed", (data) => {
       if (data.mediaType) setMediaType(data.mediaType);
       if (data.tmdbId) setTmdbId(data.tmdbId);
       if (data.season) setSeason(data.season);
       if (data.episode) setEpisode(data.episode);
       if (data.provider) setProvider(data.provider);
+
+      setMessages((prev) => [
+        ...prev,
+        { text: `Nuovo contenuto caricato (ID: ${data.tmdbId})`, system: true }
+      ]);
     });
 
-    // Gestione comandi Sync
     newSocket.on("sync_action", (actionData) => {
       setLastAction(actionData);
+      const act = typeof actionData === "string" ? actionData : actionData?.action;
+      setMessages((prev) => [
+        ...prev,
+        { text: `Comando Sync: ${act ? act.toUpperCase() : "AGGIORNATO"}`, system: true }
+      ]);
+    });
+
+    newSocket.on("user_joined", (data) => {
+      const name = data?.username || "Un utente";
+      setMessages((prev) => [
+        ...prev,
+        { text: `${name} è entrato nella stanza`, system: true }
+      ]);
     });
 
     return () => newSocket.close();
@@ -419,7 +476,7 @@ export default function WatchParty() {
     if (!socket.connected) {
       socket.connect();
     }
-    socket.emit("join_room", { roomId: roomCode, username: "Utente" });
+    socket.emit("join_room", { roomId: roomCode, username: username || "Utente" });
   };
 
   const handleMediaChange = (newMedia) => {
@@ -443,9 +500,12 @@ export default function WatchParty() {
 
   const handleSendMessage = (text) => {
     if (socket && connected) {
-      socket.emit("send_message", { text });
+      socket.emit("send_message", { text, username, socketId: socket.id });
     } else {
-      setMessages((prev) => [...prev, { text, authorName: "Tu", self: true }]);
+      setMessages((prev) => [
+        ...prev,
+        { text, authorName: "Tu", self: true, system: false }
+      ]);
     }
   };
 
@@ -456,7 +516,14 @@ export default function WatchParty() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0B] text-[#F5F3EF]">
-      <Header connected={connected} roomCode={roomCode} setRoomCode={setRoomCode} onJoinRoom={handleJoinRoom} />
+      <Header
+        connected={connected}
+        roomCode={roomCode}
+        setRoomCode={setRoomCode}
+        username={username}
+        setUsername={setUsername}
+        onJoinRoom={handleJoinRoom}
+      />
 
       <main className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
@@ -485,5 +552,5 @@ export default function WatchParty() {
       </main>
     </div>
   );
-            }
-                
+        }
+          
