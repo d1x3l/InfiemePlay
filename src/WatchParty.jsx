@@ -26,7 +26,6 @@ function buildEmbedUrl({ provider, mediaType, tmdbId, season, episode }) {
   }
 }
 
-// Componente Toast Notifica in Sovraimpressione
 function ToastContainer({ toasts }) {
   return (
     <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2 pointer-events-none">
@@ -101,7 +100,6 @@ function Header({ connected, roomCode, setRoomCode, username, setUsername, onJoi
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Bottone Attiva Notifiche Browser */}
           <button
             onClick={onRequestNotifications}
             className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
@@ -370,22 +368,18 @@ export default function WatchParty() {
   const [messages, setMessages] = useState([]);
   const [lastAction, setLastAction] = useState(null);
   
-  // Stato Notifiche Toast e Permessi Browser
   const [toasts, setToasts] = useState([]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
-  // Gestore Toast + Notifica di Sistema
   const triggerNotification = (title, message) => {
-    // 1. Toast HTML
     const newToast = { id: Date.now(), title, message };
     setToasts((prev) => [...prev, newToast]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== newToast.id));
     }, 4000);
 
-    // 2. Notifica di Sistema del Browser (se concessa)
     if ("Notification" in window && Notification.permission === "granted") {
-      newNotification(title, { body: message, icon: "/favicon.ico" });
+      new Notification(title, { body: message, icon: "/favicon.ico" });
     }
   };
 
@@ -523,4 +517,12 @@ export default function WatchParty() {
 
       <main className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-          <section className="flex w-full flex-col gap-4
+          <section className="flex w-full flex-col gap-4 lg:w-[70%]">
+            <MediaSelector
+              mediaType={mediaType}
+              setMediaType={setMediaType}
+              tmdbId={tmdbId}
+              setTmdbId={setTmdbId}
+              season={season}
+              setSeason={setSeason}
+            
