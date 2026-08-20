@@ -1,42 +1,34 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 
-/**
- * =============================================================================
- *  WATCH PARTY — Layout UI (solo struttura, nessuna logica di rete reale)
- * =============================================================================
- *  - Dark mode "sala di regia": nero caldo, accento segnale arancio-rosso,
- *    indicatore di sincronizzazione pulsante nell'header.
- *  - Colonna sinistra (≈70%): selettore TMDb + player 16:9 (iframe VixSrc).
- *  - Colonna destra (≈30%): riquadro cam locale/remota + chat.
- *  - Stacked su mobile, due colonne da `lg:` in su.
- *
- *  Font consigliati (aggiungere nel file HTML/Tailwind config):
- *  - "Barlow Condensed" per label/eyebrow/uppercase (mood "broadcast")
- *  - "Inter" per testo corrente (chat, input, corpo)
- * =============================================================================
- */
-
 // -----------------------------------------------------------------------------
-// Helper: costruisce l'URL dell'iframe VixSrc in base al tipo di contenuto
+// Helper: costruisce l'URL in base al Provider selezionato e al contenuto
 // -----------------------------------------------------------------------------
-function buildVixSrcUrl({ mediaType, tmdbId, season, episode }) {
+function buildEmbedUrl({ provider, mediaType, tmdbId, season, episode }) {
   if (!tmdbId) return null;
 
-  if (mediaType === "movie") {
-    return `https://vixsrc.to/embed/movie/${tmdbId}`;
-  }
+  const isMovie = mediaType === "movie";
+  if (!isMovie && (!season || !episode)) return null;
 
-  if (mediaType === "tv") {
-    // Servono sia stagione che episodio per una serie TV
-    if (!season || !episode) return null;
-    return `https://vixsrc.to/embed/tv/${tmdbId}/${season}/${episode}`;
+  switch (provider) {
+    case "vixsrc":
+      return isMovie
+        ? `https://vixsrc.to/embed/movie/${tmdbId}`
+        : `https://vixsrc.to/embed/tv/${tmdbId}/${season}/${episode}`;
+    case "vidsrc":
+      return isMovie
+        ? `https://vidsrc.to/embed/movie/${tmdbId}`
+        : `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`;
+    case "autoembed":
+      return isMovie
+        ? `https://player.autoembed.cc/embed/movie/${tmdbId}`
+        : `https://player.autoembed.cc/embed/tv/${tmdbId}/${season}/${episode}`;
+    default:
+      return null;
   }
-
-  return null;
 }
 
 // -----------------------------------------------------------------------------
-// Sotto-componente: pallino di stato con pulse animato (signature element)
+// Sotto-componente: pallino di stato
 // -----------------------------------------------------------------------------
 function SyncIndicator({ connected }) {
   return (
@@ -51,9 +43,7 @@ function SyncIndicator({ connected }) {
           }`}
         />
       </span>
-      <span
-        className="font-[Barlow_Condensed,sans-serif] text-[13px] uppercase tracking-[0.18em] text-[#B8B6B0]"
-      >
+      <span className="font-[Barlow_Condensed,sans-serif] text-[13px] uppercase tracking-[0.18em] text-[#B8B6B0]">
         {connected ? "Connesso" : "In attesa dell'altro utente…"}
       </span>
     </div>
@@ -61,15 +51,12 @@ function SyncIndicator({ connected }) {
 }
 
 // -----------------------------------------------------------------------------
-// Sotto-componente: Header (titolo, stato connessione, codice stanza / link)
+// Sotto-componente: Header
 // -----------------------------------------------------------------------------
 function Header({ connected, roomCode, setRoomCode }) {
   const [copied, setCopied] = useState(false);
 
-  const shareLink = `https://watchparty.app/r/${roomCode || "------"}`;
-
   const handleCopy = () => {
-    // Placeholder: in produzione userebbe navigator.clipboard.writeText(shareLink)
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -77,7 +64,6 @@ function Header({ connected, roomCode, setRoomCode }) {
   return (
     <header className="sticky top-0 z-30 border-b border-[#1E1E20] bg-[#0A0A0B]/95 backdrop-blur">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6">
-        {/* Logo / titolo app */}
         <div className="flex items-center justify-between gap-4 sm:justify-start">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-[#FF4D2E]">
@@ -87,19 +73,15 @@ function Header({ connected, roomCode, setRoomCode }) {
               Watch<span className="text-[#FF4D2E]">Party</span>
             </h1>
           </div>
-
-          {/* Stato connessione — visibile anche in versione compatta su mobile */}
           <div className="sm:hidden">
             <SyncIndicator connected={connected} />
           </div>
         </div>
 
-        {/* Stato connessione desktop */}
         <div className="hidden sm:block">
           <SyncIndicator connected={connected} />
         </div>
 
-        {/* Codice stanza / link condivisione */}
         <div className="flex items-center gap-2">
           <div className="flex flex-1 items-center gap-2 rounded-lg border border-[#1E1E20] bg-[#141416] px-3 py-2 sm:w-72">
             <span className="font-[Barlow_Condensed,sans-serif] text-[11px] uppercase tracking-[0.14em] text-[#6B6963] shrink-0">
@@ -127,7 +109,7 @@ function Header({ connected, roomCode, setRoomCode }) {
 }
 
 // -----------------------------------------------------------------------------
-// Sotto-componente: selettore contenuto (TMDb ID + stagione/episodio)
+// Sotto-componente: MediaSelector (con cambio Server/Provider)
 // -----------------------------------------------------------------------------
 function MediaSelector({
   mediaType,
@@ -138,18 +120,34 @@ function MediaSelector({
   setSeason,
   episode,
   setEpisode,
+  provider,
+  setProvider,
 }) {
   return (
     <div className="rounded-xl border border-[#1E1E20] bg-[#111113] p-4">
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <span className="font-[Barlow_Condensed,sans-serif] text-[12px] uppercase tracking-[0.16em] text-[#6B6963]">
-          Sorgente contenuto
+          Sorgente Contenuto
         </span>
-        <div className="h-px flex-1 bg-[#1E1E20]" />
+        
+        {/* Selettore Server/Provider */}
+        <div className="flex items-center gap-1.5">
+          <span className="font-[Barlow_Condensed,sans-serif] text-[10px] uppercase text-[#6B6963]">
+            Server:
+          </span>
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+            className="rounded border border-[#1E1E20] bg-[#0A0A0B] px-2 py-0.5 text-xs text-[#FF4D2E] outline-none cursor-pointer"
+          >
+            <option value="vixsrc">VixSrc (Default)</option>
+            <option value="vidsrc">VidSrc (Alt 1)</option>
+            <option value="autoembed">AutoEmbed (Alt 2)</option>
+          </select>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        {/* Toggle Film / Serie TV */}
         <div className="flex shrink-0 rounded-lg border border-[#1E1E20] bg-[#0A0A0B] p-1">
           {[
             { key: "movie", label: "Film" },
@@ -169,7 +167,6 @@ function MediaSelector({
           ))}
         </div>
 
-        {/* ID TMDb */}
         <div className="flex flex-1 flex-col gap-1">
           <label className="font-[Barlow_Condensed,sans-serif] text-[11px] uppercase tracking-[0.14em] text-[#6B6963]">
             ID TMDb
@@ -179,12 +176,11 @@ function MediaSelector({
             inputMode="numeric"
             value={tmdbId}
             onChange={(e) => setTmdbId(e.target.value.replace(/\D/g, ""))}
-            placeholder="es. 550 (Fight Club)"
-            className="rounded-lg border border-[#1E1E20] bg-[#0A0A0B] px-3 py-2 text-sm text-[#F5F3EF] placeholder-[#4A4944] outline-none focus:border-[#FF4D2E]/60"
+            placeholder="es. 550"
+            className="rounded-lg border border-[#1E1E20] bg-[#0A0A0B] px-3 py-2 text-sm text-[#F5F3EF] outline-none focus:border-[#FF4D2E]/60"
           />
         </div>
 
-        {/* Stagione / Episodio — solo per serie TV */}
         {mediaType === "tv" && (
           <>
             <div className="flex w-full flex-col gap-1 sm:w-24">
@@ -219,29 +215,24 @@ function MediaSelector({
 }
 
 // -----------------------------------------------------------------------------
-// Sotto-componente: player video 16:9 con iframe VixSrc dinamico
+// Sotto-componente: VideoPlayer
 // -----------------------------------------------------------------------------
 function VideoPlayer({ src }) {
   return (
     <div className="group relative w-full overflow-hidden rounded-xl border border-[#1E1E20] bg-black">
-      {/* Wrapper che forza il ratio 16:9 in modo responsive */}
       <div className="relative aspect-video w-full">
         {src ? (
           <iframe
-            key={src} // forza il remount quando cambia il contenuto
+            key={src}
             src={src}
-            title="Player video sincronizzato"
+            title="Player video"
             allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
             allowFullScreen
             referrerPolicy="origin"
             className="absolute inset-0 h-full w-full border-0"
           />
         ) : (
-          // Stato vuoto: nessun ID TMDb inserito ancora
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#0D0D0E] px-6 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[#2A2A2C]">
-              <div className="h-0 w-0 border-y-[7px] border-l-[11px] border-y-transparent border-l-[#4A4944]" />
-            </div>
             <p className="font-[Barlow_Condensed,sans-serif] text-sm uppercase tracking-[0.12em] text-[#6B6963]">
               Inserisci un ID TMDb per avviare la riproduzione
             </p>
@@ -249,7 +240,6 @@ function VideoPlayer({ src }) {
         )}
       </div>
 
-      {/* Etichetta LIVE-SYNC in overlay, coerente col signature element dell'header */}
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 backdrop-blur">
         <span className="h-1.5 w-1.5 rounded-full bg-[#FF4D2E]" />
         <span className="font-[Barlow_Condensed,sans-serif] text-[10px] uppercase tracking-[0.14em] text-[#F5F3EF]">
@@ -261,7 +251,7 @@ function VideoPlayer({ src }) {
 }
 
 // -----------------------------------------------------------------------------
-// Sotto-componente: riquadro con le due cam (locale + remota)
+// CamPanel & ChatPanel
 // -----------------------------------------------------------------------------
 function CamPanel() {
   return (
@@ -272,149 +262,62 @@ function CamPanel() {
         </span>
         <div className="h-px flex-1 bg-[#1E1E20]" />
       </div>
-
       <div className="grid grid-cols-2 gap-2">
-        {/* Cam locale */}
         <div className="relative aspect-square overflow-hidden rounded-lg border border-[#1E1E20] bg-[#0A0A0B]">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1E1E20] text-[#6B6963]">
-              <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                <path
-                  d="M15 8.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5l4 3v-11l-4 3Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-          </div>
-          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 font-[Barlow_Condensed,sans-serif] text-[10px] uppercase tracking-wider text-[#F5F3EF]">
+          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 font-[Barlow_Condensed,sans-serif] text-[10px] uppercase text-[#F5F3EF]">
             Tu
           </span>
         </div>
-
-        {/* Cam remota */}
         <div className="relative aspect-square overflow-hidden rounded-lg border border-[#1E1E20] bg-[#0A0A0B]">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1E1E20] text-[#6B6963]">
-              <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-                <path
-                  d="M15 8.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1.5l4 3v-11l-4 3Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </div>
-          </div>
-          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 font-[Barlow_Condensed,sans-serif] text-[10px] uppercase tracking-wider text-[#F5F3EF]">
+          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 font-[Barlow_Condensed,sans-serif] text-[10px] uppercase text-[#F5F3EF]">
             Ospite
           </span>
-          {/* Indicatore assenza segnale, coerente col mood "broadcast" */}
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[#4A4944]" />
         </div>
       </div>
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// Sotto-componente: chat in tempo reale (mock)
-// -----------------------------------------------------------------------------
-const MOCK_MESSAGES = [
-  { id: 1, author: "Ospite", text: "Ci sono, parti pure!", self: false, time: "20:41" },
-  { id: 2, author: "Tu", text: "Ok metto play tra 3… 2… 1…", self: true, time: "20:41" },
-  { id: 3, author: "Ospite", text: "Questa scena è la mia preferita 🔥", self: false, time: "20:47" },
-  { id: 4, author: "Tu", text: "Aspetta, torna indietro un attimo", self: true, time: "20:48" },
-];
-
 function ChatPanel() {
-  const [messages, setMessages] = useState(MOCK_MESSAGES);
+  const [messages, setMessages] = useState([
+    { id: 1, author: "Ospite", text: "Ci sono, parti pure!", self: false, time: "20:41" },
+  ]);
   const [draft, setDraft] = useState("");
-  const listRef = useRef(null);
-
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [messages]);
 
   const handleSend = () => {
-    const text = draft.trim();
-    if (!text) return;
+    if (!draft.trim()) return;
     setMessages((prev) => [
       ...prev,
-      {
-        id: prev.length + 1,
-        author: "Tu",
-        text,
-        self: true,
-        time: new Date().toLocaleTimeString("it-IT", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      },
+      { id: Date.now(), author: "Tu", text: draft, self: true, time: "Ora" },
     ]);
     setDraft("");
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-[#1E1E20] bg-[#111113]">
-      <div className="flex items-center gap-2 border-b border-[#1E1E20] px-4 py-3">
+    <div className="flex min-h-[300px] flex-col rounded-xl border border-[#1E1E20] bg-[#111113]">
+      <div className="border-b border-[#1E1E20] px-4 py-3">
         <span className="font-[Barlow_Condensed,sans-serif] text-[12px] uppercase tracking-[0.16em] text-[#6B6963]">
           Chat
         </span>
-        <div className="h-px flex-1 bg-[#1E1E20]" />
-        <span className="font-[Barlow_Condensed,sans-serif] text-[11px] text-[#4A4944]">
-          {messages.length} messaggi
-        </span>
       </div>
-
-      {/* Lista messaggi */}
-      <div
-        ref={listRef}
-        className="flex min-h-[180px] flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3 lg:max-h-[360px]"
-      >
+      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
         {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`flex flex-col ${m.self ? "items-end" : "items-start"}`}
-          >
-            <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm leading-snug ${
-                m.self
-                  ? "bg-[#FF4D2E] text-[#0A0A0B]"
-                  : "bg-[#1E1E20] text-[#F5F3EF]"
-              }`}
-            >
+          <div key={m.id} className={`flex flex-col ${m.self ? "items-end" : "items-start"}`}>
+            <div className={`rounded-lg px-3 py-1.5 text-sm ${m.self ? "bg-[#FF4D2E] text-black" : "bg-[#1E1E20] text-white"}`}>
               {m.text}
             </div>
-            <span className="mt-1 px-1 text-[10px] text-[#4A4944]">
-              {m.self ? "Tu" : m.author} · {m.time}
-            </span>
           </div>
         ))}
       </div>
-
-      {/* Input invio messaggio */}
-      <div className="flex items-center gap-2 border-t border-[#1E1E20] p-3">
+      <div className="border-t border-[#1E1E20] p-2 flex gap-2">
         <input
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Scrivi un messaggio…"
-          className="flex-1 rounded-lg border border-[#1E1E20] bg-[#0A0A0B] px-3 py-2 text-sm text-[#F5F3EF] placeholder-[#4A4944] outline-none focus:border-[#FF4D2E]/60"
+          placeholder="Messaggio..."
+          className="flex-1 bg-[#0A0A0B] border border-[#1E1E20] rounded px-3 text-sm text-white outline-none"
         />
-        <button
-          onClick={handleSend}
-          className="shrink-0 rounded-lg bg-[#FF4D2E] px-4 py-2 text-sm font-semibold text-[#0A0A0B] transition-opacity hover:opacity-90 active:scale-95"
-        >
+        <button onClick={handleSend} className="bg-[#FF4D2E] text-black px-3 py-1 rounded font-bold text-sm">
           Invia
         </button>
       </div>
@@ -426,19 +329,18 @@ function ChatPanel() {
 // Componente principale
 // -----------------------------------------------------------------------------
 export default function WatchParty() {
-  // Stato "finto" di connessione, solo per mostrare i due possibili stati UI
   const [connected] = useState(false);
   const [roomCode, setRoomCode] = useState("XKZ-491");
-
-  // Stato selezione contenuto
+  
+  const [provider, setProvider] = useState("vixsrc");
   const [mediaType, setMediaType] = useState("movie");
-  const [tmdbId, setTmdbId] = useState("550"); // Fight Club, come da esempio
+  const [tmdbId, setTmdbId] = useState("550");
   const [season, setSeason] = useState("1");
   const [episode, setEpisode] = useState("1");
 
   const videoSrc = useMemo(
-    () => buildVixSrcUrl({ mediaType, tmdbId, season, episode }),
-    [mediaType, tmdbId, season, episode]
+    () => buildEmbedUrl({ provider, mediaType, tmdbId, season, episode }),
+    [provider, mediaType, tmdbId, season, episode]
   );
 
   return (
@@ -446,9 +348,7 @@ export default function WatchParty() {
       <Header connected={connected} roomCode={roomCode} setRoomCode={setRoomCode} />
 
       <main className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
-        {/* Layout a due colonne (70/30) su desktop, stacked su mobile */}
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
-          {/* ---------------- Colonna sinistra — 70% ---------------- */}
           <section className="flex w-full flex-col gap-4 lg:w-[70%]">
             <MediaSelector
               mediaType={mediaType}
@@ -459,11 +359,12 @@ export default function WatchParty() {
               setSeason={setSeason}
               episode={episode}
               setEpisode={setEpisode}
+              provider={provider}
+              setProvider={setProvider}
             />
             <VideoPlayer src={videoSrc} />
           </section>
 
-          {/* ---------------- Colonna destra — 30% ---------------- */}
           <aside className="flex w-full flex-col gap-4 lg:w-[30%]">
             <CamPanel />
             <ChatPanel />
@@ -473,4 +374,4 @@ export default function WatchParty() {
     </div>
   );
     }
-      
+            
