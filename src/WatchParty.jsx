@@ -141,8 +141,9 @@ function MediaSelector({
           <select
             value={provider}
             onChange={(e) => {
-              setProvider(e.target.value);
-              onMediaChange({ mediaType, tmdbId, season, episode, provider: e.target.value });
+              const newProv = e.target.value;
+              setProvider(newProv);
+              onMediaChange({ mediaType, tmdbId, season, episode, provider: newProv });
             }}
             className="rounded border border-[#1E1E20] bg-[#0A0A0B] px-2 py-0.5 text-xs text-[#FF4D2E] outline-none cursor-pointer"
           >
@@ -255,20 +256,20 @@ function VideoPlayer({ src, onSyncAction, lastAction }) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => onSyncAction("play")}
-            className="rounded bg-[#FF4D2E] px-3 py-1 text-xs font-bold text-black hover:opacity-90"
+            className="rounded bg-[#FF4D2E] px-3 py-1 text-xs font-bold text-black hover:opacity-90 active:scale-95 transition-transform"
           >
             ▶ Sync Play
           </button>
           <button
             onClick={() => onSyncAction("pause")}
-            className="rounded bg-[#1E1E20] px-3 py-1 text-xs font-bold text-white hover:bg-[#2A2A2C]"
+            className="rounded bg-[#1E1E20] px-3 py-1 text-xs font-bold text-white hover:bg-[#2A2A2C] active:scale-95 transition-transform"
           >
             ❚❚ Sync Pause
           </button>
         </div>
         {lastAction && (
           <span className="font-mono text-[11px] text-[#FF4D2E]">
-            Ultimo segnale: {lastAction.action.toUpperCase()}
+            Azione: {typeof lastAction === "string" ? lastAction.toUpperCase() : lastAction?.action?.toUpperCase() || "SYNC"}
           </span>
         )}
       </div>
@@ -328,7 +329,7 @@ function ChatPanel({ messages, onSendMessage }) {
             <div className={`rounded-lg px-3 py-1.5 text-sm ${m.self ? "bg-[#FF4D2E] text-black" : "bg-[#1E1E20] text-white"}`}>
               {m.text}
             </div>
-            <span className="text-[9px] text-[#6B6963] mt-0.5">{m.author}</span>
+            <span className="text-[9px] text-[#6B6963] mt-0.5">{m.authorName}</span>
           </div>
         ))}
       </div>
@@ -339,9 +340,9 @@ function ChatPanel({ messages, onSendMessage }) {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSend()}
           placeholder="Scrivi un messaggio..."
-          className="flex-1 bg-[#0A0A0B] border border-[#1E1E20] rounded px-3 text-sm text-white outline-none"
+          className="flex-1 bg-[#0A0A0B] border border-[#1E1E20] rounded px-3 text-sm text-white outline-none focus:border-[#FF4D2E]/50"
         />
-        <button onClick={handleSend} className="bg-[#FF4D2E] text-black px-3 py-1 rounded font-bold text-sm">
+        <button onClick={handleSend} className="bg-[#FF4D2E] text-black px-3 py-1 rounded font-bold text-sm hover:opacity-90">
           Invia
         </button>
       </div>
@@ -353,6 +354,7 @@ export default function WatchParty() {
   const [socket, setSocket] = useState(null);
   const [connected, setConnected] = useState(false);
   const [roomCode, setRoomCode] = useState("TEST12");
+  const [mySocketId, setMySocketId] = useState(null);
 
   const [provider, setProvider] = useState("vixsrc");
   const [mediaType, setMediaType] = useState("movie");
@@ -363,26 +365,48 @@ export default function WatchParty() {
   const [messages, setMessages] = useState([]);
   const [lastAction, setLastAction] = useState(null);
 
-  // Inizializzazione Socket.io
   useEffect(() => {
     const newSocket = io(RENDER_BACKEND_URL, { autoConnect: false });
     setSocket(newSocket);
 
-    newSocket.on("connect", () => setConnected(true));
-    newSocket.on("disconnect", () => setConnected(false));
-
-    newSocket.on("receive_message", (msg) => {
-      setMessages((prev) => [...prev, { text: msg.text, author: msg.author, self: msg.author === "Tu" }]);
+    newSocket.on("connect", () => {
+      setConnected(true);
+      setMySocketId(newSocket.id);
     });
 
+    newSocket.on("disconnect", () => {
+      setConnected(false);
+      setMySocketId(null);
+    });
+
+    // Gestione sicura dei messaggi della chat
+    newSocket.on("receive_message", (msg) => {
+      const authorText = typeof msg.author === "string" 
+        ? msg.author 
+        : (msg.author?.username || "Utente");
+
+      const isSelf = msg.authorSocketId ? msg.authorSocketId === newSocket.id : false;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          text: msg.text || "",
+          authorName: authorText,
+          self: isSelf
+        }
+      ]);
+    });
+
+    // Gestione cambio film/serie
     newSocket.on("media_changed", (data) => {
-      setMediaType(data.mediaType);
-      setTmdbId(data.tmdbId);
+      if (data.mediaType) setMediaType(data.mediaType);
+      if (data.tmdbId) setTmdbId(data.tmdbId);
       if (data.season) setSeason(data.season);
       if (data.episode) setEpisode(data.episode);
       if (data.provider) setProvider(data.provider);
     });
 
+    // Gestione comandi Sync
     newSocket.on("sync_action", (actionData) => {
       setLastAction(actionData);
     });
@@ -392,23 +416,26 @@ export default function WatchParty() {
 
   const handleJoinRoom = () => {
     if (!socket) return;
-    socket.connect();
+    if (!socket.connected) {
+      socket.connect();
+    }
     socket.emit("join_room", { roomId: roomCode, username: "Utente" });
   };
 
   const handleMediaChange = (newMedia) => {
+    setMediaType(newMedia.mediaType);
+    setTmdbId(newMedia.tmdbId);
+    setSeason(newMedia.season);
+    setEpisode(newMedia.episode);
+    setProvider(newMedia.provider);
+
     if (socket && connected) {
       socket.emit("change_media", newMedia);
-    } else {
-      setMediaType(newMedia.mediaType);
-      setTmdbId(newMedia.tmdbId);
-      setSeason(newMedia.season);
-      setEpisode(newMedia.episode);
-      setProvider(newMedia.provider);
     }
   };
 
   const handleSyncAction = (action) => {
+    setLastAction(action);
     if (socket && connected) {
       socket.emit("sync_action", { action, currentTime: 0 });
     }
@@ -418,7 +445,7 @@ export default function WatchParty() {
     if (socket && connected) {
       socket.emit("send_message", { text });
     } else {
-      setMessages((prev) => [...prev, { text, author: "Tu", self: true }]);
+      setMessages((prev) => [...prev, { text, authorName: "Tu", self: true }]);
     }
   };
 
@@ -458,5 +485,5 @@ export default function WatchParty() {
       </main>
     </div>
   );
-          }
-                         
+            }
+                
