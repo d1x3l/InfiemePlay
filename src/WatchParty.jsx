@@ -1,11 +1,13 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+1import React, { useState, useMemo, useRef, useEffect } from "react";
+import { io } from "socket.io-client";
 
-// -----------------------------------------------------------------------------
-// Helper: costruisce l'URL in base al Provider selezionato e al contenuto
-// -----------------------------------------------------------------------------
+// =============================================================================
+// INSERISCI QUI L'URL DEL TUO BACKEND RENDER
+// =============================================================================
+const RENDER_BACKEND_URL = "https://infiemeplay-server.onrender.com"; 
+
 function buildEmbedUrl({ provider, mediaType, tmdbId, season, episode }) {
   if (!tmdbId) return null;
-
   const isMovie = mediaType === "movie";
   if (!isMovie && (!season || !episode)) return null;
 
@@ -27,9 +29,6 @@ function buildEmbedUrl({ provider, mediaType, tmdbId, season, episode }) {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Sotto-componente: pallino di stato
-// -----------------------------------------------------------------------------
 function SyncIndicator({ connected }) {
   return (
     <div className="flex items-center gap-2">
@@ -44,19 +43,17 @@ function SyncIndicator({ connected }) {
         />
       </span>
       <span className="font-[Barlow_Condensed,sans-serif] text-[13px] uppercase tracking-[0.18em] text-[#B8B6B0]">
-        {connected ? "Connesso" : "In attesa dell'altro utente…"}
+        {connected ? "Stanza Connessa" : "Disconnesso / In attesa…"}
       </span>
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// Sotto-componente: Header
-// -----------------------------------------------------------------------------
-function Header({ connected, roomCode, setRoomCode }) {
+function Header({ connected, roomCode, setRoomCode, onJoinRoom }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
+    navigator.clipboard.writeText(window.location.href);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -97,6 +94,12 @@ function Header({ connected, roomCode, setRoomCode }) {
             />
           </div>
           <button
+            onClick={onJoinRoom}
+            className="shrink-0 rounded-lg bg-[#FF4D2E] px-3 py-2 text-sm font-semibold text-[#0A0A0B] transition-opacity hover:opacity-90 active:scale-95"
+          >
+            Entra
+          </button>
+          <button
             onClick={handleCopy}
             className="shrink-0 rounded-lg border border-[#1E1E20] bg-[#141416] px-3 py-2 text-sm font-medium text-[#F5F3EF] transition-colors hover:border-[#FF4D2E]/50 hover:text-[#FF4D2E] active:scale-95"
           >
@@ -108,9 +111,6 @@ function Header({ connected, roomCode, setRoomCode }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Sotto-componente: MediaSelector (con cambio Server/Provider)
-// -----------------------------------------------------------------------------
 function MediaSelector({
   mediaType,
   setMediaType,
@@ -122,22 +122,28 @@ function MediaSelector({
   setEpisode,
   provider,
   setProvider,
+  onMediaChange,
 }) {
+  const handleApply = () => {
+    onMediaChange({ mediaType, tmdbId, season, episode, provider });
+  };
+
   return (
     <div className="rounded-xl border border-[#1E1E20] bg-[#111113] p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <span className="font-[Barlow_Condensed,sans-serif] text-[12px] uppercase tracking-[0.16em] text-[#6B6963]">
           Sorgente Contenuto
         </span>
-        
-        {/* Selettore Server/Provider */}
         <div className="flex items-center gap-1.5">
           <span className="font-[Barlow_Condensed,sans-serif] text-[10px] uppercase text-[#6B6963]">
             Server:
           </span>
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+            onChange={(e) => {
+              setProvider(e.target.value);
+              onMediaChange({ mediaType, tmdbId, season, episode, provider: e.target.value });
+            }}
             className="rounded border border-[#1E1E20] bg-[#0A0A0B] px-2 py-0.5 text-xs text-[#FF4D2E] outline-none cursor-pointer"
           >
             <option value="vixsrc">VixSrc (Default)</option>
@@ -183,7 +189,7 @@ function MediaSelector({
 
         {mediaType === "tv" && (
           <>
-            <div className="flex w-full flex-col gap-1 sm:w-24">
+            <div className="flex w-full flex-col gap-1 sm:w-20">
               <label className="font-[Barlow_Condensed,sans-serif] text-[11px] uppercase tracking-[0.14em] text-[#6B6963]">
                 Stagione
               </label>
@@ -195,7 +201,7 @@ function MediaSelector({
                 className="rounded-lg border border-[#1E1E20] bg-[#0A0A0B] px-3 py-2 text-sm text-[#F5F3EF] outline-none focus:border-[#FF4D2E]/60"
               />
             </div>
-            <div className="flex w-full flex-col gap-1 sm:w-24">
+            <div className="flex w-full flex-col gap-1 sm:w-20">
               <label className="font-[Barlow_Condensed,sans-serif] text-[11px] uppercase tracking-[0.14em] text-[#6B6963]">
                 Episodio
               </label>
@@ -209,15 +215,19 @@ function MediaSelector({
             </div>
           </>
         )}
+
+        <button
+          onClick={handleApply}
+          className="shrink-0 rounded-lg bg-[#1E1E20] border border-[#2A2A2C] px-4 py-2 text-sm font-semibold text-[#F5F3EF] hover:bg-[#FF4D2E] hover:text-black transition-colors"
+        >
+          Carica
+        </button>
       </div>
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// Sotto-componente: VideoPlayer
-// -----------------------------------------------------------------------------
-function VideoPlayer({ src }) {
+function VideoPlayer({ src, onSyncAction, lastAction }) {
   return (
     <div className="group relative w-full overflow-hidden rounded-xl border border-[#1E1E20] bg-black">
       <div className="relative aspect-video w-full">
@@ -240,19 +250,32 @@ function VideoPlayer({ src }) {
         )}
       </div>
 
-      <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 backdrop-blur">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#FF4D2E]" />
-        <span className="font-[Barlow_Condensed,sans-serif] text-[10px] uppercase tracking-[0.14em] text-[#F5F3EF]">
-          Sync
-        </span>
+      {/* Overlay dei Controlli di Sincronizzazione */}
+      <div className="flex items-center justify-between border-t border-[#1E1E20] bg-[#111113] px-4 py-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onSyncAction("play")}
+            className="rounded bg-[#FF4D2E] px-3 py-1 text-xs font-bold text-black hover:opacity-90"
+          >
+            ▶ Sync Play
+          </button>
+          <button
+            onClick={() => onSyncAction("pause")}
+            className="rounded bg-[#1E1E20] px-3 py-1 text-xs font-bold text-white hover:bg-[#2A2A2C]"
+          >
+            ❚❚ Sync Pause
+          </button>
+        </div>
+        {lastAction && (
+          <span className="font-mono text-[11px] text-[#FF4D2E]">
+            Ultimo segnale: {lastAction.action.toUpperCase()}
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-// -----------------------------------------------------------------------------
-// CamPanel & ChatPanel
-// -----------------------------------------------------------------------------
 function CamPanel() {
   return (
     <div className="rounded-xl border border-[#1E1E20] bg-[#111113] p-3">
@@ -278,34 +301,34 @@ function CamPanel() {
   );
 }
 
-function ChatPanel() {
-  const [messages, setMessages] = useState([
-    { id: 1, author: "Ospite", text: "Ci sono, parti pure!", self: false, time: "20:41" },
-  ]);
+function ChatPanel({ messages, onSendMessage }) {
   const [draft, setDraft] = useState("");
+  const listRef = useRef(null);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  }, [messages]);
 
   const handleSend = () => {
     if (!draft.trim()) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), author: "Tu", text: draft, self: true, time: "Ora" },
-    ]);
+    onSendMessage(draft);
     setDraft("");
   };
 
   return (
-    <div className="flex min-h-[300px] flex-col rounded-xl border border-[#1E1E20] bg-[#111113]">
+    <div className="flex min-h-[320px] flex-col rounded-xl border border-[#1E1E20] bg-[#111113]">
       <div className="border-b border-[#1E1E20] px-4 py-3">
         <span className="font-[Barlow_Condensed,sans-serif] text-[12px] uppercase tracking-[0.16em] text-[#6B6963]">
-          Chat
+          Chat Stanza
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
-        {messages.map((m) => (
-          <div key={m.id} className={`flex flex-col ${m.self ? "items-end" : "items-start"}`}>
+      <div ref={listRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 max-h-[280px]">
+        {messages.map((m, idx) => (
+          <div key={idx} className={`flex flex-col ${m.self ? "items-end" : "items-start"}`}>
             <div className={`rounded-lg px-3 py-1.5 text-sm ${m.self ? "bg-[#FF4D2E] text-black" : "bg-[#1E1E20] text-white"}`}>
               {m.text}
             </div>
+            <span className="text-[9px] text-[#6B6963] mt-0.5">{m.author}</span>
           </div>
         ))}
       </div>
@@ -314,7 +337,8 @@ function ChatPanel() {
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Messaggio..."
+          onKeyDown={(e) => e.key === "Enter" && handleSend()}
+          placeholder="Scrivi un messaggio..."
           className="flex-1 bg-[#0A0A0B] border border-[#1E1E20] rounded px-3 text-sm text-white outline-none"
         />
         <button onClick={handleSend} className="bg-[#FF4D2E] text-black px-3 py-1 rounded font-bold text-sm">
@@ -325,18 +349,78 @@ function ChatPanel() {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Componente principale
-// -----------------------------------------------------------------------------
 export default function WatchParty() {
-  const [connected] = useState(false);
-  const [roomCode, setRoomCode] = useState("XKZ-491");
-  
+  const [socket, setSocket] = useState(null);
+  const [connected, setConnected] = useState(false);
+  const [roomCode, setRoomCode] = useState("TEST12");
+
   const [provider, setProvider] = useState("vixsrc");
   const [mediaType, setMediaType] = useState("movie");
   const [tmdbId, setTmdbId] = useState("550");
   const [season, setSeason] = useState("1");
   const [episode, setEpisode] = useState("1");
+
+  const [messages, setMessages] = useState([]);
+  const [lastAction, setLastAction] = useState(null);
+
+  // Inizializzazione Socket.io
+  useEffect(() => {
+    const newSocket = io(RENDER_BACKEND_URL, { autoConnect: false });
+    setSocket(newSocket);
+
+    newSocket.on("connect", () => setConnected(true));
+    newSocket.on("disconnect", () => setConnected(false));
+
+    newSocket.on("receive_message", (msg) => {
+      setMessages((prev) => [...prev, { text: msg.text, author: msg.author, self: msg.author === "Tu" }]);
+    });
+
+    newSocket.on("media_changed", (data) => {
+      setMediaType(data.mediaType);
+      setTmdbId(data.tmdbId);
+      if (data.season) setSeason(data.season);
+      if (data.episode) setEpisode(data.episode);
+      if (data.provider) setProvider(data.provider);
+    });
+
+    newSocket.on("sync_action", (actionData) => {
+      setLastAction(actionData);
+    });
+
+    return () => newSocket.close();
+  }, []);
+
+  const handleJoinRoom = () => {
+    if (!socket) return;
+    socket.connect();
+    socket.emit("join_room", { roomId: roomCode, username: "Utente" });
+  };
+
+  const handleMediaChange = (newMedia) => {
+    if (socket && connected) {
+      socket.emit("change_media", newMedia);
+    } else {
+      setMediaType(newMedia.mediaType);
+      setTmdbId(newMedia.tmdbId);
+      setSeason(newMedia.season);
+      setEpisode(newMedia.episode);
+      setProvider(newMedia.provider);
+    }
+  };
+
+  const handleSyncAction = (action) => {
+    if (socket && connected) {
+      socket.emit("sync_action", { action, currentTime: 0 });
+    }
+  };
+
+  const handleSendMessage = (text) => {
+    if (socket && connected) {
+      socket.emit("send_message", { text });
+    } else {
+      setMessages((prev) => [...prev, { text, author: "Tu", self: true }]);
+    }
+  };
 
   const videoSrc = useMemo(
     () => buildEmbedUrl({ provider, mediaType, tmdbId, season, episode }),
@@ -345,7 +429,7 @@ export default function WatchParty() {
 
   return (
     <div className="min-h-screen bg-[#0A0A0B] text-[#F5F3EF]">
-      <Header connected={connected} roomCode={roomCode} setRoomCode={setRoomCode} />
+      <Header connected={connected} roomCode={roomCode} setRoomCode={setRoomCode} onJoinRoom={handleJoinRoom} />
 
       <main className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
@@ -361,17 +445,18 @@ export default function WatchParty() {
               setEpisode={setEpisode}
               provider={provider}
               setProvider={setProvider}
+              onMediaChange={handleMediaChange}
             />
-            <VideoPlayer src={videoSrc} />
+            <VideoPlayer src={videoSrc} onSyncAction={handleSyncAction} lastAction={lastAction} />
           </section>
 
           <aside className="flex w-full flex-col gap-4 lg:w-[30%]">
             <CamPanel />
-            <ChatPanel />
+            <ChatPanel messages={messages} onSendMessage={handleSendMessage} />
           </aside>
         </div>
       </main>
     </div>
   );
-    }
-            
+          }
+                         
